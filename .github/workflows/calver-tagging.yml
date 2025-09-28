@@ -1,12 +1,7 @@
 name: CalVer Auto-Release
 on:
   push:
-    branches: [ main ]  # or master, depending on your default branch
-    # Optionally filter by paths if you only want releases for certain changes
-    # paths:
-    #   - 'src/**'
-    #   - 'package.json'
-
+    branches: [ main ]
 jobs:
   create-calver-release:
     runs-on: ubuntu-latest
@@ -73,18 +68,5 @@ jobs:
         with:
           tag_name: ${{ steps.calver.outputs.tag }}
           release_name: Release ${{ steps.calver.outputs.tag }}
-          body: |
-            ## CalVer Release ${{ steps.calver.outputs.tag }}
-            
-            **Release Date:** $(date -u '+%Y-%m-%d %H:%M:%S UTC')
-            **Commit:** ${{ github.sha }}
-            
-            ### Changes
-            - Automated release triggered by push to main branch
-            
-            ### Tag Format
-            This release uses CalVer format: `yyyy.mm.dd_hh-mm.auto_increment`
-            - Auto increment resets daily
-            - Increments for same-day releases
           draft: false
           prerelease: false
