@@ -1,83 +1,90 @@
-name: CalVer Tagging
-
+name: CalVer Auto-Release
 on:
-  release:
-    types: [created]
+  push:
+    branches: [ main ]  # or master, depending on your default branch
+    # Optionally filter by paths if you only want releases for certain changes
+    # paths:
+    #   - 'src/**'
+    #   - 'package.json'
 
 jobs:
-  create-calver-tag:
+  create-calver-release:
     runs-on: ubuntu-latest
     permissions:
       contents: write
-    
+
     steps:
-    - name: Checkout code
-      uses: actions/checkout@v4
-      with:
-        fetch-depth: 0  # Fetch all history for tag analysis
-    
-    - name: Generate CalVer Tag
-      id: calver
-      run: |
-        # Get current date and time in UTC
-        CURRENT_DATE=$(date -u '+%Y.%m.%d')
-        CURRENT_TIME=$(date -u '+%H-%M')  # Use hyphen instead of colon for git compatibility
-        
-        echo "Current UTC date: $CURRENT_DATE"
-        echo "Current UTC time: $CURRENT_TIME"
-        
-        # Get existing tags for today (pattern: yyyy.mm.dd_*)
-        echo "Searching for existing tags with pattern: ${CURRENT_DATE}_*"
-        TODAY_TAGS=$(git tag -l "${CURRENT_DATE}_*" 2>/dev/null | sort -V)
-        
-        if [ ! -z "$TODAY_TAGS" ]; then
-          echo "Found existing tags for today:"
-          echo "$TODAY_TAGS"
-        else
-          echo "No existing tags found for today"
-        fi
-        
-        # Calculate auto increment
-        AUTO_INCREMENT=0
-        if [ ! -z "$TODAY_TAGS" ]; then
-          LAST_TAG=$(echo "$TODAY_TAGS" | tail -n 1)
-          echo "Last tag for today: $LAST_TAG"
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Generate CalVer Tag and Release
+        id: calver
+        run: |
+          # Get current date and time in UTC
+          CURRENT_DATE=$(date -u '+%Y.%m.%d')
+          CURRENT_TIME=$(date -u '+%H-%M')
           
-          # Extract the auto increment from the last tag (format: yyyy.mm.dd_hh-mm.increment)
-          AUTO_INCREMENT=$(echo "$LAST_TAG" | sed -n 's/.*\.\([0-9]*\)$/\1/p')
+          echo "Current UTC date: $CURRENT_DATE"
+          echo "Current UTC time: $CURRENT_TIME"
           
-          # Ensure we have a valid number
-          if [ -z "$AUTO_INCREMENT" ] || [ "$AUTO_INCREMENT" = "" ]; then
-            AUTO_INCREMENT=0
+          # Get existing tags for today
+          TODAY_TAGS=$(git tag -l "${CURRENT_DATE}_*" 2>/dev/null | sort -V)
+          
+          # Calculate auto increment
+          AUTO_INCREMENT=0
+          if [ ! -z "$TODAY_TAGS" ]; then
+            LAST_TAG=$(echo "$TODAY_TAGS" | tail -n 1)
+            echo "Last tag for today: $LAST_TAG"
+          
+            AUTO_INCREMENT=$(echo "$LAST_TAG" | sed -n 's/.*\.\([0-9]*\)$/\1/p')
+          
+            if [ -z "$AUTO_INCREMENT" ] || [ "$AUTO_INCREMENT" = "" ]; then
+              AUTO_INCREMENT=0
+            fi
+          
+            AUTO_INCREMENT=$((AUTO_INCREMENT + 1))
           fi
           
-          AUTO_INCREMENT=$((AUTO_INCREMENT + 1))
-          echo "Incremented auto_increment to: $AUTO_INCREMENT"
-        else
-          echo "Starting with auto_increment: $AUTO_INCREMENT"
-        fi
-        
-        # Create the CalVer tag (using underscore instead of colon for git compatibility)
-        CALVER_TAG="${CURRENT_DATE}_${CURRENT_TIME}.${AUTO_INCREMENT}"
-        echo "Generated CalVer tag: $CALVER_TAG"
-        echo "tag=$CALVER_TAG" >> $GITHUB_OUTPUT
-        
-        # Verify tag doesn't already exist
-        if git rev-parse "$CALVER_TAG" >/dev/null 2>&1; then
-          echo "Error: Tag $CALVER_TAG already exists!"
-          exit 1
-        fi
-        
-        # Create and push the tag
-        git config --local user.email "action@github.com"
-        git config --local user.name "GitHub Action"
-        git tag -a "$CALVER_TAG" -m "CalVer release tag for $(date -u '+%Y-%m-%d %H:%M:%S UTC')"
-        git push origin "$CALVER_TAG"
-        
-        echo "CalVer tag $CALVER_TAG created and pushed successfully"
-    
-    - name: Update Release with CalVer Tag
-      run: |
-        echo "CalVer tag created: ${{ steps.calver.outputs.tag }}"
-        echo "This tag follows the format: yyyy.mm.dd:hh:mm.auto_increment"
-        echo "Auto increment is reset daily and increments for same-day releases"
+          # Create the CalVer tag
+          CALVER_TAG="${CURRENT_DATE}_${CURRENT_TIME}.${AUTO_INCREMENT}"
+          echo "Generated CalVer tag: $CALVER_TAG"
+          echo "tag=$CALVER_TAG" >> $GITHUB_OUTPUT
+          
+          # Verify tag doesn't already exist
+          if git rev-parse "$CALVER_TAG" >/dev/null 2>&1; then
+            echo "Error: Tag $CALVER_TAG already exists!"
+            exit 1
+          fi
+          
+          # Create the tag
+          git config --local user.email "action@github.com"
+          git config --local user.name "GitHub Action"
+          git tag -a "$CALVER_TAG" -m "CalVer release tag for $(date -u '+%Y-%m-%d %H:%M:%S UTC')"
+          git push origin "$CALVER_TAG"
+          
+          echo "CalVer tag $CALVER_TAG created and pushed successfully"
+
+      - name: Create GitHub Release
+        uses: actions/create-release@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          tag_name: ${{ steps.calver.outputs.tag }}
+          release_name: Release ${{ steps.calver.outputs.tag }}
+          body: |
+            ## CalVer Release ${{ steps.calver.outputs.tag }}
+            
+            **Release Date:** $(date -u '+%Y-%m-%d %H:%M:%S UTC')
+            **Commit:** ${{ github.sha }}
+            
+            ### Changes
+            - Automated release triggered by push to main branch
+            
+            ### Tag Format
+            This release uses CalVer format: `yyyy.mm.dd_hh-mm.auto_increment`
+            - Auto increment resets daily
+            - Increments for same-day releases
+          draft: false
+          prerelease: false
